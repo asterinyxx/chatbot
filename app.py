@@ -1,6 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 import os
+import time
 from google import genai
 
 
@@ -13,7 +14,7 @@ load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("❌ GEMINI_API_KEY not found. Please check your .env file.")
+    st.error("❌ GEMINI_API_KEY not found. Please check your Streamlit Secrets.")
     st.stop()
 
 client = genai.Client(api_key=api_key)
@@ -37,10 +38,6 @@ st.set_page_config(
 st.markdown("""
 <style>
 
-    /* =================================
-       MAIN APP
-    ================================= */
-
     .stApp {
         background: linear-gradient(135deg, #eef2ff, #f8f9ff);
         color: #111827 !important;
@@ -52,11 +49,6 @@ st.markdown("""
         padding-bottom: 3rem;
     }
 
-
-    /* =================================
-       TITLE
-    ================================= */
-
     h1 {
         text-align: center !important;
         color: #4f46e5 !important;
@@ -64,11 +56,6 @@ st.markdown("""
         font-weight: 700 !important;
         margin-bottom: 5px !important;
     }
-
-
-    /* =================================
-       NORMAL TEXT
-    ================================= */
 
     .stApp p {
         color: #374151 !important;
@@ -79,21 +66,11 @@ st.markdown("""
         color: #374151 !important;
     }
 
-
-    /* =================================
-       TEXT AREA LABEL
-    ================================= */
-
     [data-testid="stTextArea"] label {
         color: #374151 !important;
         font-weight: 600 !important;
         font-size: 16px !important;
     }
-
-
-    /* =================================
-       TEXT AREA
-    ================================= */
 
     textarea {
         background-color: #ffffff !important;
@@ -114,11 +91,6 @@ st.markdown("""
         box-shadow: 0 0 10px rgba(99, 102, 241, 0.25) !important;
     }
 
-
-    /* =================================
-       BUTTON
-    ================================= */
-
     .stButton > button {
         width: 100%;
         border-radius: 12px;
@@ -136,19 +108,9 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(79, 70, 229, 0.35);
     }
 
-
-    /* =================================
-       ALERTS
-    ================================= */
-
     .stAlert {
         border-radius: 12px;
     }
-
-
-    /* =================================
-       RESPONSE TEXT
-    ================================= */
 
     [data-testid="stMarkdownContainer"] {
         line-height: 1.7;
@@ -194,58 +156,100 @@ if st.button("✨ Generate Response"):
 
             with st.spinner("Gemini is thinking..."):
 
-                response = client.models.generate_content(
-                    model="gemini-3.5-flash",
-                    contents=prompt
+                # Current stable Flash model
+                model_name = "gemini-3.8-flash"
+
+                # Retry a few times if Gemini temporarily returns 503
+                response = None
+
+                for attempt in range(3):
+
+                    try:
+
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt
+                        )
+
+                        break
+
+                    except Exception as api_error:
+
+                        error_message = str(api_error)
+
+                        if "503" in error_message or "UNAVAILABLE" in error_message:
+
+                            if attempt < 2:
+                                time.sleep(2 ** attempt)
+                            else:
+                                raise api_error
+
+                        else:
+                            raise api_error
+
+
+            # ==================================
+            # SUCCESS
+            # ==================================
+
+            if response and response.text:
+
+                st.success("Response generated!")
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: white;
+                        padding: 25px;
+                        border-radius: 15px;
+                        margin-top: 15px;
+                        border: 1px solid #e0e7ff;
+                        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+                        color: #111827;
+                    ">
+
+                        <h3 style="
+                            color: #4f46e5;
+                            margin-top: 0;
+                            margin-bottom: 15px;
+                        ">
+                            🤖 Gemini Response
+                        </h3>
+
+                        <div style="
+                            color: #374151;
+                            font-size: 16px;
+                            line-height: 1.7;
+                        ">
+                            {response.text}
+                        </div>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True
                 )
 
-            st.success("Response generated!")
+            else:
 
-
-            # ==================================
-            # RESPONSE CARD
-            # ==================================
-
-            st.markdown(
-                f"""
-                <div style="
-                    background: white;
-                    padding: 25px;
-                    border-radius: 15px;
-                    margin-top: 15px;
-                    border: 1px solid #e0e7ff;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-                    color: #111827;
-                ">
-
-                    <h3 style="
-                        color: #4f46e5;
-                        margin-top: 0;
-                        margin-bottom: 15px;
-                    ">
-                        🤖 Gemini Response
-                    </h3>
-
-                    <div style="
-                        color: #374151;
-                        font-size: 16px;
-                        line-height: 1.7;
-                    ">
-                        {response.text}
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+                st.error("❌ Gemini returned an empty response.")
 
 
         except Exception as e:
 
-            st.error(
-                f"❌ Something went wrong while contacting Gemini:\n\n{e}"
-            )
+            error_message = str(e)
 
+            if "503" in error_message or "UNAVAILABLE" in error_message:
+
+                st.error(
+                    "❌ Gemini is temporarily experiencing high demand. "
+                    "Please try again in a few seconds."
+                )
+
+            else:
+
+                st.error(
+                    f"❌ Something went wrong while contacting Gemini:\n\n{e}"
+                )
 
     else:
 
